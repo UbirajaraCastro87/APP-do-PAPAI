@@ -1,0 +1,6 @@
+{
+  "name": "Papai Alfabetiza",
+  "description": "Aplicativo nativo gamificado para alfabetização de crianças com trilha de aprendizagem de coordenação, vogais, sílabas e matemática intercalada com o mascote Papai.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
