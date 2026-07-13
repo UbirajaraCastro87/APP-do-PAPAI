@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         when (val screen = currentScreen) {
                             is GameScreen.SplashIntro -> SplashIntroScreen(viewModel)
+                            is GameScreen.AvatarSelection -> AvatarSelectionScreen(viewModel)
                             is GameScreen.WorldSelection -> WorldSelectionScreen(viewModel)
                             is GameScreen.PhaseInstruction -> PhaseInstructionScreen(viewModel, screen.phase)
                             is GameScreen.PhaseGame -> PhaseGameScreen(viewModel, screen.phase)
@@ -45,6 +46,12 @@ class MainActivity : ComponentActivity() {
 
                         // Diálogo centralizado para seleção personalizada de vozes do Papai
                         VoiceSelectorDialog(viewModel)
+
+                        // Diálogo centralizado para celebração festiva de novas medalhas
+                        BadgeCelebrationDialog(viewModel)
+
+                        // Diálogo centralizado para seleção de trilha sonora
+                        SoundtrackSelectorDialog(viewModel)
                     }
                 }
             }

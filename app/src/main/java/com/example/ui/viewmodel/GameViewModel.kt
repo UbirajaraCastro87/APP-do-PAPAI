@@ -11,11 +11,13 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
+import com.example.audio.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -31,6 +33,7 @@ data class VoiceOption(
  */
 sealed class GameScreen {
     object SplashIntro : GameScreen()
+    object AvatarSelection : GameScreen()
     object WorldSelection : GameScreen()
     data class PhaseInstruction(val phase: Phase) : GameScreen()
     data class PhaseGame(val phase: Phase) : GameScreen()
@@ -51,6 +54,88 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
             initialValue = emptyList()
         )
 
+    // Fluxo para pontuação total
+    val totalScore: StateFlow<Int> = repository.allProgress
+        .map { list -> list.sumOf { it.score } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    // Fluxo para total de estrelas
+    val totalStars: StateFlow<Int> = repository.allProgress
+        .map { list -> list.sumOf { it.stars } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    // Lista de IDs de medalhas/conquistas desbloqueadas
+    val unlockedBadges: StateFlow<List<String>> = repository.allProgress
+        .map { list ->
+            val completedMap = list.associate { it.phaseId to it.completed }
+            val stars = list.sumOf { it.stars }
+            getUnlockedBadgesList(completedMap, stars)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // Novo emblema desbloqueado para exibição do diálogo festivo de conquista
+    val newlyUnlockedBadge = MutableStateFlow<GameBadge?>(null)
+
+    fun getUnlockedBadgesList(completedMap: Map<String, Boolean>, stars: Int): List<String> {
+        val unlocked = mutableListOf<String>()
+        
+        // 1. World 1
+        val w1Phases = GameCurriculum.phases.filter { it.worldId == 1 }
+        if (w1Phases.isNotEmpty() && w1Phases.all { completedMap[it.id] == true }) {
+            unlocked.add("world_1")
+        }
+        
+        // 2. World 2
+        val w2Phases = GameCurriculum.phases.filter { it.worldId == 2 }
+        if (w2Phases.isNotEmpty() && w2Phases.all { completedMap[it.id] == true }) {
+            unlocked.add("world_2")
+        }
+        
+        // 3. World 3
+        val w3Phases = GameCurriculum.phases.filter { it.worldId == 3 }
+        if (w3Phases.isNotEmpty() && w3Phases.all { completedMap[it.id] == true }) {
+            unlocked.add("world_3")
+        }
+        
+        // 4. World 4
+        val w4Phases = GameCurriculum.phases.filter { it.worldId == 4 }
+        if (w4Phases.isNotEmpty() && w4Phases.all { completedMap[it.id] == true }) {
+            unlocked.add("world_4")
+        }
+        
+        val completedCount = completedMap.filter { it.value }.size
+        
+        // Special First Step
+        if (completedCount >= 1) {
+            unlocked.add("special_first_step")
+        }
+        
+        // Special Star Collector
+        if (stars >= 15) {
+            unlocked.add("special_star_collector")
+        }
+        
+        // Special Supreme Master
+        val totalPhasesCount = GameCurriculum.phases.size
+        if (completedCount == totalPhasesCount) {
+            unlocked.add("special_supreme_master")
+        }
+        
+        return unlocked
+    }
+
     // Idioma ativo: "PT" (Português) ou "EN" (Inglês)
     val appLanguage = MutableStateFlow("PT")
 
@@ -66,6 +151,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
 
     // Tela de navegação atual
     val currentScreen = MutableStateFlow<GameScreen>(GameScreen.SplashIntro)
+
+    // ID do avatar selecionado pela criança
+    val selectedAvatarId = MutableStateFlow(
+        application.getSharedPreferences("papai_game_prefs", Context.MODE_PRIVATE)
+            .getString("selected_avatar_id", "lion") ?: "lion"
+    )
+
+    // Apelido/nome da criança
+    val childNickname = MutableStateFlow(
+        application.getSharedPreferences("papai_game_prefs", Context.MODE_PRIVATE)
+            .getString("child_nickname", "") ?: ""
+    )
+
+    fun selectAvatar(avatarId: String) {
+        selectedAvatarId.value = avatarId
+        getApplication<Application>().getSharedPreferences("papai_game_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("selected_avatar_id", avatarId)
+            .apply()
+
+        // Speak introduction for the selected avatar
+        val avatar = GameAvatars.getAvatarById(avatarId)
+        val speakText = if (appLanguage.value == "PT") avatar.introPt else avatar.introEn
+        speak(speakText)
+    }
+
+    fun updateChildNickname(nickname: String) {
+        childNickname.value = nickname
+        getApplication<Application>().getSharedPreferences("papai_game_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("child_nickname", nickname)
+            .apply()
+    }
 
     // Gerenciador TTS nativo do Android
     private var tts: TextToSpeech? = null
@@ -86,6 +204,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
 
     // Gerador de sons e efeitos sonoros nativos
     private val toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+
+    // Player de trilha sonora e efeitos procedurais fofos
+    val proceduralAudio = ProceduralAudioPlayer(application)
+    val showSoundtrackDialog = MutableStateFlow(false)
 
     // Estados dos Mini-games ativos
     val vowelMatchIndex = MutableStateFlow(0) // Índice da pergunta do som inicial/final
@@ -147,6 +269,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
         }
         tts = TextToSpeech(contextWithAttribution, this)
         resetSnakeGame()
+        proceduralAudio.startMusicLoop(viewModelScope)
     }
 
     override fun onInit(status: Int) {
@@ -592,17 +715,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
 
     // Toca som de acerto (Bip feliz)
     fun playSuccessSound() {
+        if (!isAssistantAudioEnabled.value) return
         viewModelScope.launch {
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
-            delay(150)
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 200)
+            try {
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            } catch (e: Exception) {}
+            proceduralAudio.playProceduralSuccessSFX(viewModelScope)
         }
     }
 
     // Toca som de erro (Bip triste)
     fun playErrorSound() {
+        if (!isAssistantAudioEnabled.value) return
         viewModelScope.launch {
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_NACK, 300)
+            try {
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_NACK, 200)
+            } catch (e: Exception) {}
+            proceduralAudio.playProceduralErrorSFX(viewModelScope)
         }
     }
 
@@ -613,14 +742,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
             tts?.stop()
             delay(50)
 
-            // Toca som de confirmação fofo do sistema
-            try {
-                toneGenerator.startTone(ToneGenerator.TONE_SUP_CONFIRM, 150)
-            } catch (e: Exception) {}
-            delay(150)
-            try {
-                toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 100)
-            } catch (e: Exception) {}
+            if (isAssistantAudioEnabled.value) {
+                // Toca a fanfarra procedural fofa
+                proceduralAudio.playCelebrationFanfareSFX(viewModelScope)
+                delay(800)
+            }
 
             // Mensagem de comemoração alegre com a voz do Papai
             if (appLanguage.value == "PT") {
@@ -661,6 +787,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
         // Ao mudar de tela, dispara o TTS correspondente
         when (screen) {
             is GameScreen.SplashIntro -> speakPapaiIntroduction()
+            is GameScreen.AvatarSelection -> {
+                val pt = "Escolha seu personagem preferido e digite seu apelido!"
+                val en = "Choose your favorite character and type your nickname!"
+                speak(if (appLanguage.value == "PT") pt else en)
+            }
             is GameScreen.WorldSelection -> {
                 val pt = "Escolha um caminho mágico para jogar com o Papai!"
                 val en = "Choose a magic path to play with Papai!"
@@ -802,7 +933,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
     // Salvar Progresso e Trilha de Aprendizagem
     fun completePhase(phase: Phase) {
         viewModelScope.launch {
+            // Pegar progresso antes de completar
+            val progressBefore = userProgress.value
+            val completedBefore = progressBefore.associate { it.phaseId to it.completed }
+            val starsBefore = progressBefore.sumOf { it.stars }
+            val badgesBefore = getUnlockedBadgesList(completedBefore, starsBefore)
+
+            // Marcar como concluído
             repository.markPhaseCompleted(phase.id, 3, 100)
+
+            // Simular o progresso depois de completar para saber se desbloqueou algo novo imediatamente
+            val completedAfter = completedBefore.toMutableMap().apply { put(phase.id, true) }
+            val starsAfter = starsBefore + (3 - (completedBefore[phase.id]?.let { 3 } ?: 0))
+            val badgesAfter = getUnlockedBadgesList(completedAfter, starsAfter)
+
+            val newlyUnlocked = badgesAfter.filterNot { badgesBefore.contains(it) }
+            if (newlyUnlocked.isNotEmpty()) {
+                val badgeId = newlyUnlocked.first()
+                val badge = GameBadges.getBadgeById(badgeId)
+                if (badge != null) {
+                    newlyUnlockedBadge.value = badge
+                    // Assistente fala parabéns pela conquista específica!
+                    val textToSpeak = if (appLanguage.value == "PT") {
+                        "Uau! Você ganhou a medalha ${badge.titlePt}! ${badge.descriptionPt}"
+                    } else {
+                        "Wow! You earned the ${badge.titleEn} medal! ${badge.descriptionEn}"
+                    }
+                    speak(textToSpeak)
+                }
+            }
+
             navigateTo(GameScreen.Celebration(phase))
         }
     }
@@ -844,5 +1004,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application), T
             it.shutdown()
         }
         toneGenerator.release()
+        proceduralAudio.release()
     }
 }

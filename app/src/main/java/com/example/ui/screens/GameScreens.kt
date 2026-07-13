@@ -8,6 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -20,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.*
+import com.example.audio.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -151,6 +156,21 @@ fun SplashIntroScreen(viewModel: GameViewModel) {
                         )
                     }
 
+                    // Soundtrack Selector Button
+                    IconButton(
+                        onClick = { viewModel.showSoundtrackDialog.value = true },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(SoftPinkBg)
+                            .border(1.5.dp, DeepRedDark, CircleShape)
+                    ) {
+                        Text(
+                            text = "🎵",
+                            fontSize = 18.sp
+                        )
+                    }
+
                     // Language Toggle (PT/EN) like the HTML
                     Row(
                         modifier = Modifier
@@ -265,7 +285,13 @@ fun SplashIntroScreen(viewModel: GameViewModel) {
 
             // Botão Gigante de Jogar
             Button(
-                onClick = { viewModel.navigateTo(GameScreen.WorldSelection) },
+                onClick = {
+                    if (viewModel.childNickname.value.isEmpty()) {
+                        viewModel.navigateTo(GameScreen.AvatarSelection)
+                    } else {
+                        viewModel.navigateTo(GameScreen.WorldSelection)
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
                 shape = RoundedCornerShape(28.dp),
                 modifier = Modifier
@@ -307,6 +333,11 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
     val language by viewModel.appLanguage.collectAsState()
     val isAudioEnabled by viewModel.isAssistantAudioEnabled.collectAsState()
     val progressList by viewModel.userProgress.collectAsState()
+    val totalScore by viewModel.totalScore.collectAsState()
+    val totalStars by viewModel.totalStars.collectAsState()
+    val unlockedBadges by viewModel.unlockedBadges.collectAsState()
+
+    val selectedBadgeDetail = remember { mutableStateOf<GameBadge?>(null) }
 
     // Mapeamento de progresso resolvido
     val completedPhases = progressList.associate { it.phaseId to it.completed }
@@ -350,9 +381,14 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
                         )
                     }
 
+                    val nickname by viewModel.childNickname.collectAsState()
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (language == "PT") "MUNDOS" else "WORLDS",
+                            text = if (nickname.isNotEmpty()) {
+                                if (language == "PT") "JORNADA DE ${nickname.uppercase()}" else "${nickname.uppercase()}'S JOURNEY"
+                            } else {
+                                if (language == "PT") "MUNDOS" else "WORLDS"
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             color = SubtitleRed,
                             fontWeight = FontWeight.Black
@@ -366,7 +402,7 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
                         )
                     }
 
-                    // Controls (Audio Toggle & Language Toggle)
+                    // Controls (Audio Toggle, Avatar Select, Voice Selector & Language Toggle)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -388,6 +424,23 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
                             )
                         }
 
+                        // Avatar Selection Button
+                        val childAvatarId by viewModel.selectedAvatarId.collectAsState()
+                        val currentAvatar = GameAvatars.getAvatarById(childAvatarId)
+                        IconButton(
+                            onClick = { viewModel.navigateTo(GameScreen.AvatarSelection) },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SoftPinkBg)
+                                .border(1.5.dp, DeepRedDark, CircleShape)
+                        ) {
+                            Text(
+                                text = currentAvatar.emoji,
+                                fontSize = 18.sp
+                            )
+                        }
+
                         // Voice Selection Button
                         IconButton(
                             onClick = {
@@ -405,6 +458,21 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
                                 contentDescription = "Select Voice",
                                 tint = DeepRedDark,
                                 modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Soundtrack Selector Button
+                        IconButton(
+                            onClick = { viewModel.showSoundtrackDialog.value = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SoftPinkBg)
+                                .border(1.5.dp, DeepRedDark, CircleShape)
+                        ) {
+                            Text(
+                                text = "🎵",
+                                fontSize = 18.sp
                             )
                         }
 
@@ -446,6 +514,220 @@ fun WorldSelectionScreen(viewModel: GameViewModel) {
                             }
                         }
                     }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // SISTEMA DE PONTUAÇÃO E CONQUISTAS (BADGES)
+            // -------------------------------------------------------------
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White)
+                        .border(3.dp, DeepRedDark, RoundedCornerShape(24.dp))
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // 1. Painel de Pontuação Geral
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SoftPinkContainer)
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (language == "PT") "PONTOS TOTAIS" else "TOTAL SCORE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = SubtitleRed
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(text = "🏆", fontSize = 24.sp)
+                                Text(
+                                    text = "$totalScore XP",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = DeepRedDark
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(40.dp)
+                                .background(DeepRedDark.copy(alpha = 0.2f))
+                        )
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (language == "PT") "ESTRELAS OBTIDAS" else "STARS EARNED",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = SubtitleRed
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(text = "⭐", fontSize = 24.sp)
+                                Text(
+                                    text = "$totalStars",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = DeepRedDark
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Prateleira de Medalhas (Badges Shelf)
+                    Text(
+                        text = if (language == "PT") "Minhas Medalhas 🏅" else "My Badges 🏅",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        color = DeepRedDark,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        GameBadges.badges.forEach { badge ->
+                            val isUnlocked = unlockedBadges.contains(badge.id)
+                            Column(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .clickable { selectedBadgeDetail.value = badge }
+                                    .graphicsLayer {
+                                        if (!isUnlocked) {
+                                            alpha = 0.6f
+                                        }
+                                    },
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isUnlocked) SunnyYellow.copy(alpha = 0.25f) else Color.LightGray.copy(alpha = 0.3f))
+                                        .border(
+                                            width = if (isUnlocked) 2.5.dp else 1.5.dp,
+                                            color = if (isUnlocked) SunnyYellow else Color.Gray.copy(alpha = 0.5f),
+                                            shape = CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isUnlocked) {
+                                        Text(text = badge.emoji, fontSize = 32.sp)
+                                    } else {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(text = badge.emoji, fontSize = 32.sp, modifier = Modifier.graphicsLayer { alpha = 0.3f })
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = "Lock",
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = if (language == "PT") badge.titlePt else badge.titleEn,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isUnlocked) DeepRedDark else Color.Gray,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    lineHeight = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Diálogo de Detalhes da Medalha
+            val badgeToShow = selectedBadgeDetail.value
+            if (badgeToShow != null) {
+                val isUnlocked = unlockedBadges.contains(badgeToShow.id)
+                item {
+                    AlertDialog(
+                        onDismissRequest = { selectedBadgeDetail.value = null },
+                        confirmButton = {
+                            Button(
+                                onClick = { selectedBadgeDetail.value = null },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Text(text = if (language == "PT") "Legal!" else "Cool!", fontWeight = FontWeight.Black, color = Color.White)
+                            }
+                        },
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(text = badgeToShow.emoji, fontSize = 36.sp)
+                                Text(
+                                    text = if (language == "PT") badgeToShow.titlePt else badgeToShow.titleEn,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = DeepRedDark
+                                )
+                            }
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = if (language == "PT") badgeToShow.descriptionPt else badgeToShow.descriptionEn,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CharcoalKids
+                                )
+                                
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(SoftPinkContainer)
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isUnlocked) Icons.Default.CheckCircle else Icons.Default.Info,
+                                        contentDescription = "Status",
+                                        tint = if (isUnlocked) WatermelonGreen else SubtitleRed,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = if (isUnlocked) {
+                                            if (language == "PT") "Você já conquistou esta medalha!" else "You have already earned this medal!"
+                                        } else {
+                                            if (language == "PT") "Como conseguir: ${badgeToShow.conditionDescPt}" else "How to earn: ${badgeToShow.conditionDescEn}"
+                                        },
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isUnlocked) WatermelonGreen else SubtitleRed
+                                    )
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(24.dp),
+                        containerColor = Color.White,
+                        modifier = Modifier.border(3.dp, DeepRedDark, RoundedCornerShape(24.dp))
+                    )
                 }
             }
 
@@ -883,6 +1165,21 @@ fun GameHeader(viewModel: GameViewModel, phase: Phase, onBack: () -> Unit) {
                     contentDescription = "Select Voice",
                     tint = DeepRedDark,
                     modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Soundtrack Selector Button
+            IconButton(
+                onClick = { viewModel.showSoundtrackDialog.value = true },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(SoftPinkBg)
+                    .border(2.dp, DeepRedDark, RoundedCornerShape(16.dp))
+            ) {
+                Text(
+                    text = "🎵",
+                    fontSize = 22.sp
                 )
             }
 
@@ -4102,5 +4399,639 @@ fun VoiceSelectorDialog(viewModel: GameViewModel) {
         },
         shape = RoundedCornerShape(24.dp),
         containerColor = SoftPinkBg
+    )
+}
+
+@Composable
+fun BadgeCelebrationDialog(viewModel: GameViewModel) {
+    val badge by viewModel.newlyUnlockedBadge.collectAsState()
+    val language by viewModel.appLanguage.collectAsState()
+
+    val currentBadge = badge ?: return
+
+    AlertDialog(
+        onDismissRequest = { viewModel.newlyUnlockedBadge.value = null },
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "🎉 " + (if (language == "PT") "NOVA MEDALHA!" else "NEW MEDAL!") + " 🎉",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    color = PrimaryRed,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Giant Animated/Glowing Circle with the Badge Emoji
+                Box(
+                    modifier = Modifier
+                        .size(110.dp)
+                        .clip(CircleShape)
+                        .background(SunnyYellow.copy(alpha = 0.25f))
+                        .border(3.dp, SunnyYellow, CircleShape)
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = currentBadge.emoji,
+                        fontSize = 54.sp
+                    )
+                }
+
+                Text(
+                    text = if (language == "PT") currentBadge.titlePt else currentBadge.titleEn,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = DeepRedDark,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = if (language == "PT") currentBadge.descriptionPt else currentBadge.descriptionEn,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CharcoalKids,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                Text(
+                    text = if (language == "PT") "Ganhou +100 Pontos de Experiência!" else "Earned +100 Experience Points!",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    color = WatermelonGreen,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { viewModel.newlyUnlockedBadge.value = null },
+                colors = ButtonDefaults.buttonColors(containerColor = WatermelonGreen),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .border(2.dp, Color.White, RoundedCornerShape(20.dp))
+            ) {
+                Text(
+                    text = if (language == "PT") "EBA! CONSEGUI! 🌟" else "YAY! I DID IT! 🌟",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+            }
+        },
+        shape = RoundedCornerShape(32.dp),
+        containerColor = Color.White,
+        modifier = Modifier.border(4.dp, SunnyYellow, RoundedCornerShape(32.dp))
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AvatarSelectionScreen(viewModel: GameViewModel) {
+    val language by viewModel.appLanguage.collectAsState()
+    val selectedAvatarId by viewModel.selectedAvatarId.collectAsState()
+    val savedNickname by viewModel.childNickname.collectAsState()
+
+    var nickname by remember { mutableStateOf(savedNickname) }
+    val scrollState = rememberScrollState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(SoftPinkBg.copy(alpha = 0.3f), CloudWhite)
+                )
+            )
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp)
+        ) {
+            // Header Row with Back Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        if (savedNickname.isNotEmpty()) {
+                            viewModel.navigateTo(GameScreen.WorldSelection)
+                        } else {
+                            viewModel.navigateTo(GameScreen.SplashIntro)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(SoftPinkContainer)
+                        .border(1.5.dp, DeepRedDark, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = DeepRedDark,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column {
+                    Text(
+                        text = if (language == "PT") "CONFIGURAR PERFIL" else "PROFILE SETTINGS",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SubtitleRed,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = if (language == "PT") "Crie o seu Herói" else "Create Your Hero",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        color = DeepRedDark
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Main Scrollable Area
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Interactive Header Card
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White)
+                        .border(3.dp, DeepRedDark, RoundedCornerShape(24.dp))
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "✨ " + (if (language == "PT") "Quem é você na Trilha?" else "Who are you on the Trail?") + " ✨",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        color = DeepRedDark,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = if (language == "PT") {
+                            "Escolha um personagem amiguinho e digite seu apelido preferido para começar a aventura!"
+                        } else {
+                            "Choose a friendly character and type your favorite nickname to start the adventure!"
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CharcoalKids.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                // Nickname Input Box
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White)
+                        .border(3.dp, DeepRedDark, RoundedCornerShape(24.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = if (language == "PT") "Como devemos te chamar? ✍️" else "What should we call you? ✍️",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        color = DeepRedDark
+                    )
+
+                    OutlinedTextField(
+                        value = nickname,
+                        onValueChange = { if (it.length <= 15) nickname = it },
+                        placeholder = {
+                            Text(
+                                text = if (language == "PT") "Ex: Joãozinho, Dudinha..." else "Ex: Joey, Lily...",
+                                color = Color.Gray.copy(alpha = 0.6f)
+                            )
+                        },
+                        singleLine = true,
+                        textStyle = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Black, color = CharcoalKids),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("child_nickname_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryRed,
+                            unfocusedBorderColor = DeepRedDark.copy(alpha = 0.3f),
+                            focusedContainerColor = SoftPinkBg.copy(alpha = 0.15f),
+                            unfocusedContainerColor = SoftPinkBg.copy(alpha = 0.15f)
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+
+                // Characters Label
+                Text(
+                    text = if (language == "PT") "Escolha seu Personagem 🌟" else "Choose Your Character 🌟",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    color = DeepRedDark,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+
+                // Render all 6 colorful character cards
+                GameAvatars.avatars.forEach { avatar ->
+                    val isSelected = selectedAvatarId == avatar.id
+                    val themeColor = Color(android.graphics.Color.parseColor(avatar.colorHex))
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.selectAvatar(avatar.id) }
+                            .border(
+                                width = if (isSelected) 3.5.dp else 1.5.dp,
+                                color = if (isSelected) PrimaryRed else DeepRedDark.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                            .testTag("avatar_card_${avatar.id}"),
+                        colors = CardDefaults.cardColors(containerColor = if (isSelected) themeColor else Color.White),
+                        shape = RoundedCornerShape(24.dp),
+                        elevation = CardDefaults.cardElevation(if (isSelected) 6.dp else 1.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Emoji circular frame
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .border(2.5.dp, if (isSelected) PrimaryRed else Color.LightGray.copy(alpha = 0.5f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = avatar.emoji, fontSize = 34.sp)
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (language == "PT") avatar.namePt else avatar.nameEn,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = DeepRedDark
+                                )
+                                Text(
+                                    text = if (language == "PT") avatar.descriptionPt else avatar.descriptionEn,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CharcoalKids.copy(alpha = 0.75f),
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+
+                            // Selection Radio Indicator
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) PrimaryRed else Color.LightGray.copy(alpha = 0.3f))
+                                    .border(2.dp, if (isSelected) Color.White else Color.Gray.copy(alpha = 0.5f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Confirm / Save Action Button
+            Button(
+                onClick = {
+                    // Safe Fallback: If nickname is empty, auto-fill with the character's first word of the name
+                    var finalNickname = nickname.trim()
+                    if (finalNickname.isEmpty()) {
+                        val activeAvatar = GameAvatars.getAvatarById(selectedAvatarId)
+                        finalNickname = if (language == "PT") {
+                            activeAvatar.namePt.split(",").first().trim()
+                        } else {
+                            activeAvatar.nameEn.split(" ").first().trim()
+                        }
+                    }
+                    viewModel.updateChildNickname(finalNickname)
+
+                    // Speak sweet welcoming message from active character
+                    val activeAvatar = GameAvatars.getAvatarById(selectedAvatarId)
+                    val congratulationsSpeak = if (language == "PT") {
+                        "Muito bem, $finalNickname! Agora eu sou o seu amiguinho de aventuras! Vamos começar!"
+                    } else {
+                        "Awesome, $finalNickname! Now I am your adventure buddy! Let's get started!"
+                    }
+                    viewModel.speak(congratulationsSpeak)
+
+                    // Navigate to WorldSelection
+                    viewModel.navigateTo(GameScreen.WorldSelection)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = WatermelonGreen),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .border(3.dp, Color.White, RoundedCornerShape(24.dp))
+                    .testTag("avatar_confirm_button"),
+                elevation = ButtonDefaults.buttonElevation(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (language == "PT") "PRONTO, VAMOS COMEÇAR! 🚀" else "READY, LET'S GO! 🚀",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SoundtrackSelectorDialog(viewModel: GameViewModel) {
+    val showDialog by viewModel.showSoundtrackDialog.collectAsState()
+    val language by viewModel.appLanguage.collectAsState()
+
+    if (!showDialog) return
+
+    val audioPlayer = viewModel.proceduralAudio
+    val isEnabled by audioPlayer.isMusicEnabled.collectAsState()
+    val currentTrack by audioPlayer.currentTrack.collectAsState()
+    val volume by audioPlayer.musicVolume.collectAsState()
+
+    AlertDialog(
+        onDismissRequest = { viewModel.showSoundtrackDialog.value = false },
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "🎵 " + (if (language == "PT") "TRILHA SONORA" else "BACKGROUND MUSIC") + " 🎵",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = DeepRedDark,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Background Music Toggle Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SoftPinkBg.copy(alpha = 0.2f))
+                        .clickable { audioPlayer.toggleMusic() }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = if (isEnabled) "🔊" else "🔇",
+                            fontSize = 24.sp
+                        )
+                        Column {
+                            Text(
+                                text = if (language == "PT") "Música de Fundo" else "Background Music",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CharcoalKids
+                            )
+                            Text(
+                                text = if (language == "PT") {
+                                    if (isEnabled) "Ativada" else "Desativada"
+                                } else {
+                                    if (isEnabled) "Enabled" else "Disabled"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isEnabled) WatermelonGreen else Color.Gray
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isEnabled,
+                        onCheckedChange = { audioPlayer.toggleMusic() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = WatermelonGreen,
+                            uncheckedThumbColor = Color.LightGray,
+                            uncheckedTrackColor = Color.LightGray.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                if (isEnabled) {
+                    // Volume Control Slider
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = if (language == "PT") "Volume da Música" else "Music Volume",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CharcoalKids.copy(alpha = 0.7f)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(text = "🔈", fontSize = 16.sp)
+                            Slider(
+                                value = volume,
+                                onValueChange = { audioPlayer.setVolume(it) },
+                                modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = PrimaryRed,
+                                    activeTrackColor = PrimaryRed,
+                                    inactiveTrackColor = SoftPinkBg
+                                )
+                            )
+                            Text(text = "🔊", fontSize = 16.sp)
+                        }
+                    }
+
+                    // Track Selection Header
+                    Text(
+                        text = if (language == "PT") "Escolha uma Melodia 🎶" else "Choose a Melody 🎶",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        color = DeepRedDark
+                    )
+
+                    // Three beautiful tracks to choose from
+                    SoundtrackType.values().forEach { track ->
+                        val isSelected = currentTrack == track
+                        val emoji = when (track) {
+                            SoundtrackType.HAPPY -> "🎷"
+                            SoundtrackType.CLOUD -> "☁️"
+                            SoundtrackType.STAR -> "✨"
+                        }
+                        val desc = when (track) {
+                            SoundtrackType.HAPPY -> if (language == "PT") "Alegre e saltitante!" else "Cheerful and bouncy!"
+                            SoundtrackType.CLOUD -> if (language == "PT") "Calma e relaxante!" else "Calm and relaxing!"
+                            SoundtrackType.STAR -> if (language == "PT") "Mágica e brilhante!" else "Magical and sparkling!"
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSelected) SunnyYellow.copy(alpha = 0.25f) else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) SunnyYellow else Color.LightGray.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { audioPlayer.setTrack(track) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) SunnyYellow.copy(alpha = 0.3f) else SoftPinkBg.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = emoji, fontSize = 20.sp)
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (language == "PT") track.titlePt else track.titleEn,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = DeepRedDark
+                                )
+                                Text(
+                                    text = desc,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CharcoalKids.copy(alpha = 0.7f)
+                                )
+                            }
+
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(WatermelonGreen),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Informative text when background music is off
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Gray.copy(alpha = 0.05f))
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (language == "PT") {
+                                "Ligue a música de fundo acima para escutar canções divertidas!"
+                            } else {
+                                "Turn on the background music above to listen to fun songs!"
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { viewModel.showSoundtrackDialog.value = false },
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .border(2.dp, Color.White, RoundedCornerShape(20.dp))
+            ) {
+                Text(
+                    text = if (language == "PT") "OK, VOLTAR! 🌟" else "OK, BACK! 🌟",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+            }
+        },
+        shape = RoundedCornerShape(28.dp),
+        containerColor = Color.White,
+        modifier = Modifier.border(3.dp, PrimaryRed, RoundedCornerShape(28.dp))
     )
 }
